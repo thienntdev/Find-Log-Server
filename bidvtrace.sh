@@ -79,7 +79,7 @@ search_logs() {
     local sysDir="$baseDir/$system"
 
     if [ "$use_gz" -eq 1 ]; then
-      local month_dir="${sysDir}/${system}-$(date +%Y)-${month}"
+        local month_dir="${sysDir}/${system}-$(date +%Y)-${month}"
         if [ ! -d "$month_dir" ]; then
             echo "❌ Không tìm thấy thư mục tháng $(date +%Y)-$month cho hệ thống $system"
             return 1
@@ -98,118 +98,97 @@ search_logs() {
 
         echo -e "\n--- $system :: $month_dir ---"
 
-        # Tìm song song tối đa 4 tiến trình
+        # Sử dụng 1 file tạm duy nhất để lưu kết quả
+        local result_file=$(mktemp)
         local pids=()
-        #local temp_dir=$(mktemp -d)
         local idx=0
-	found_flag="/tmp/found.flag"
-        rm -f "$found_flag"
 
         for gz_file in "${gz_files[@]}"; do
-		idx=$((idx + 1))           # cập nhật ngay ở đây
-    		this_idx=$idx              # giữ giá trị cố định cho mỗi tiến trình
-        {
-	    # Nếu đã có file cờ, dừng ngay
-            [[ -f "$found_flag" ]] && exit 0
-            local start_time=$(date +%s%3N)
-            local temp_file="$temp_dir/result_$idx.txt"
- 
-	    local this_file="$gz_file"
-	    local pattern="$search_pattern"
-	    # echo "🔍 Searching in $this_file with id: $idx and pattern: $pattern"
-        if [[ "$this_file" == *.gz ]]; then
-    # Dùng zgrep và zcat cho file .gz
-    if zgrep -q -- "$pattern" "$this_file"; then
-        zcat "$this_file" 2>/dev/null | awk -v value="$pattern" '
-            BEGIN { found=0; printed=0 }
+            idx=$((idx + 1))
+            this_idx=$idx
             {
-                if (gsub(value, "\033[31m&\033[0m")) {
-                    found=1
-                    printed=1
-                    print
-                    next
-                }
-                if (found == 1 && !/\[mid/ && !/^$/) {
-                    print
-                    next
-                }
-                if ((found == 1 && (/\[mid/ || /^$/)) || found == 0) {
-                    found=0
-                    next
-                }
-            }
-            END { exit (printed == 0) }
-        '
-        touch "$found_flag"
-        echo "🎯 Found in $(basename "$gz_file")"	
-    fi
-elif [[ "$this_file" == *.log ]]; then
-    # Dùng grep và cat cho file .log
-    if grep -q -- "$pattern" "$this_file"; then
-        cat "$this_file" | awk -v value="$pattern" '
-            BEGIN { found=0; printed=0 }
-            {
-                if (gsub(value, "\033[31m&\033[0m")) {
-                    found=1
-                    printed=1
-                    print
-                    next
-                }
-                if (found == 1 && !/\[mid/ && !/^$/) {
-                    print
-                    next
-                }
-                if ((found == 1 && (/\[mid/ || /^$/)) || found == 0) {
-                    found=0
-                    next
-                }
-            }
-            END { exit (printed == 0) }
-        '
-        touch "$found_flag"
-        echo "🎯 Found in $(basename "$gz_file")"	
-    fi
-fi
-	  [[ -f "$found_flag" ]] && exit 0
-            local end_time=$(date +%s%3N)
-            local duration=$((end_time - start_time))
-            # echo "⏱ Find in $(basename "$gz_file") spent $duration ms"
-        } &
-
-        pids+=($!)
-
-        # Giới hạn 16 tiến trình chạy song song
-        while [ "${#pids[@]}" -ge 32 ]; do
-            # Nếu đã tìm thấy => thoát sớm không chờ thêm
-    		if [ -f "$found_flag" ]; then
-        	break
-    		fi
-		
-		wait -n
-            # Cập nhật lại danh sách tiến trình còn chạy
-            temp_pids=()
-            for pid in "${pids[@]}"; do
-                if kill -0 "$pid" 2>/dev/null; then
-                    temp_pids+=("$pid")
+                local this_file="$gz_file"
+                local pattern="$search_pattern"
+                if [[ "$this_file" == *.gz ]]; then
+                    if zgrep -q -- "$pattern" "$this_file"; then
+                        zcat "$this_file" 2>/dev/null | awk -v value="$pattern" '
+                            BEGIN { found=0; printed=0 }
+                            {
+                                if (gsub(value, "\033[31m&\033[0m")) {
+                                    found=1
+                                    printed=1
+                                    print
+                                    next
+                                }
+                                if (found == 1 && !/\[mid/ && !/^$/) {
+                                    print
+                                    next
+                                }
+                                if ((found == 1 && (/\[mid/ || /^$/)) || found == 0) {
+                                    found=0
+                                    next
+                                }
+                            }
+                            END { exit (printed == 0) }
+                        ' >> "$result_file"
+                        if [ $? -eq 0 ]; then
+                            echo "🎯 Found in $(basename "$gz_file")" >> "$result_file"
+                        fi
+                    fi
+                elif [[ "$this_file" == *.log ]]; then
+                    if grep -q -- "$pattern" "$this_file"; then
+                        cat "$this_file" | awk -v value="$pattern" '
+                            BEGIN { found=0; printed=0 }
+                            {
+                                if (gsub(value, "\033[31m&\033[0m")) {
+                                    found=1
+                                    printed=1
+                                    print
+                                    next
+                                }
+                                if (found == 1 && !/\[mid/ && !/^$/) {
+                                    print
+                                    next
+                                }
+                                if ((found == 1 && (/\[mid/ || /^$/)) || found == 0) {
+                                    found=0
+                                    next
+                                }
+                            }
+                            END { exit (printed == 0) }
+                        ' >> "$result_file"
+                        if [ $? -eq 0 ]; then
+                            echo "🎯 Found in $(basename "$gz_file")" >> "$result_file"
+                        fi
+                    fi
                 fi
+            } &
+            pids+=($!)
+            # Giới hạn 32 tiến trình chạy song song
+            while [ "${#pids[@]}" -ge 32 ]; do
+                wait -n
+                temp_pids=()
+                for pid in "${pids[@]}"; do
+                    if kill -0 "$pid" 2>/dev/null; then
+                        temp_pids+=("$pid")
+                    fi
+                done
+                pids=("${temp_pids[@]}")
             done
-            pids=("${temp_pids[@]}")
-        done
-
         done
 
         wait
 
         # Tổng hợp kết quả
-        #if compgen -G "$temp_dir/result_*.txt" > /dev/null; then
-        #    cat "$temp_dir"/result_*.txt
-        #    rm -rf "$temp_dir"
-        #    return 0
-        #else
-        #    rm -rf "$temp_dir"
-        #    echo "❌ Không tìm thấy log khớp"
-        #    return 1
-        #fi
+        if [ -s "$result_file" ]; then
+            cat "$result_file"
+            rm -f "$result_file"
+            return 0
+        else
+            rm -f "$result_file"
+            echo "❌ Không tìm thấy log khớp"
+            return 1
+        fi
     else
         if ! compgen -G "$sysDir/*.log" > /dev/null; then
             echo "❌ Không có file .log trong $sysDir"
