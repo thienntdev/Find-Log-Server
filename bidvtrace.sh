@@ -89,7 +89,7 @@ search_logs() {
         local gz_files=()
         while IFS= read -r -d '' file; do
             gz_files+=("$file")
-        done < <(find "$month_dir" -maxdepth 1 -type f -name '*.log.gz' -print0 | sort -V -z -r)
+        done < <(find "$month_dir" -maxdepth 1 -type f -name '*.log*' -print0 | sort -V -z -r)
 
         if [ ${#gz_files[@]} -eq 0 ]; then
             echo "❌ Không có file .log.gz trong $month_dir"
@@ -117,31 +117,59 @@ search_logs() {
 	    local this_file="$gz_file"
 	    local pattern="$search_pattern"
 	    # echo "🔍 Searching in $this_file with id: $idx and pattern: $pattern"
-            if zgrep -q -- "$pattern" "$this_file"; then
-                zcat "$gz_file" 2>/dev/null | awk -v value="$pattern" '
-                    BEGIN { found=0; printed=0 }
-                    {
-                        if (gsub(value, "\033[31m&\033[0m")) {
-                            found=1
-                            printed=1
-                            print
-                            next
-                        }
-                        if (found == 1 && !/\[mid/ && !/^$/) {
-                            print
-                            next
-                        }
-                        if ((found == 1 && (/\[mid/ || /^$/)) || found == 0) {
-                            found=0
-                            next
-                        }
-                    }
-                    END { exit (printed == 0) }
-                '
-		touch "$found_flag"
-		echo "🎯 Found in $(basename "$gz_file")"	
-		# && echo "🎯 Found in $(basename "$this_file")" > "$temp_dir/result_$idx.txt"
-            fi
+        if [[ "$this_file" == *.gz ]]; then
+    # Dùng zgrep và zcat cho file .gz
+    if zgrep -q -- "$pattern" "$this_file"; then
+        zcat "$this_file" 2>/dev/null | awk -v value="$pattern" '
+            BEGIN { found=0; printed=0 }
+            {
+                if (gsub(value, "\033[31m&\033[0m")) {
+                    found=1
+                    printed=1
+                    print
+                    next
+                }
+                if (found == 1 && !/\[mid/ && !/^$/) {
+                    print
+                    next
+                }
+                if ((found == 1 && (/\[mid/ || /^$/)) || found == 0) {
+                    found=0
+                    next
+                }
+            }
+            END { exit (printed == 0) }
+        '
+        touch "$found_flag"
+        echo "🎯 Found in $(basename "$gz_file")"	
+    fi
+elif [[ "$this_file" == *.log ]]; then
+    # Dùng grep và cat cho file .log
+    if grep -q -- "$pattern" "$this_file"; then
+        cat "$this_file" | awk -v value="$pattern" '
+            BEGIN { found=0; printed=0 }
+            {
+                if (gsub(value, "\033[31m&\033[0m")) {
+                    found=1
+                    printed=1
+                    print
+                    next
+                }
+                if (found == 1 && !/\[mid/ && !/^$/) {
+                    print
+                    next
+                }
+                if ((found == 1 && (/\[mid/ || /^$/)) || found == 0) {
+                    found=0
+                    next
+                }
+            }
+            END { exit (printed == 0) }
+        '
+        touch "$found_flag"
+        echo "🎯 Found in $(basename "$gz_file")"	
+    fi
+fi
 	  [[ -f "$found_flag" ]] && exit 0
             local end_time=$(date +%s%3N)
             local duration=$((end_time - start_time))
